@@ -7,8 +7,8 @@
 # Prof. Tiago A. Almeida
 #
 #
-# Nome:
-# RA:
+# Nome: Felipe Ottoni Pereira e Letícia Almeida Paulino de Alencar Ferreira
+# RA: 804317 (Felipe) e 800408 (Letícia)
 # ################################################################
 
 # Arquivo com todas as funcoes e codigos referentes a analise exploratoria

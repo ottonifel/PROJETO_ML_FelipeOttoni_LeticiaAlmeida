@@ -1,1 +1,1 @@
-from .analise_exploratoria import read_users_info, clean_users_info, read_sensor_csv, sumarizar_ACC, sumarizar_BVP, sumarizar_EDA, sumarizar_HR, sumarizar_IBI, sumarizar_TEMP, process_acc, process_hr
+from .analise_exploratoria import read_users_info, clean_users_info, read_sensor_csv, sumarize_sensor, process_BVP, process_EDA, process_HR, process_IBI, process_TEMP, process_ACC, compute_slope

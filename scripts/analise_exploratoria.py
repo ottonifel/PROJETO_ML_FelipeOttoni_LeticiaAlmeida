@@ -17,6 +17,7 @@ import os
 import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
+from sklearn.linear_model import LinearRegression
 
 def read_users_info(path='dataset/users_info.txt'):
     """
@@ -29,14 +30,15 @@ def read_users_info(path='dataset/users_info.txt'):
         return None
 
     try:
+        # Retira linhas de comentários
         lines = []
         with open(path, 'r') as f:
             for line in f:
-                if line.startswith(',,,,'):  # linha que marca início dos comentários
+                if line.startswith(',,,,'):  # indica o ínicio do comentário
                     break
                 lines.append(line)
 
-        # Criar DataFrame apenas com as linhas úteis
+        # Cria DataFrame apenas com as linhas úteis
         from io import StringIO
         df = pd.read_csv(
             StringIO(''.join(lines)),
@@ -57,21 +59,20 @@ def clean_users_info(df):
     """
 
     df_clean = df.copy()
-    event_cols = ['Stress Inducement', 'Aerobic Exercise', 'Anaerobic Exercise']
-    # Remover valores nulos nessas colunas
-    df_clean = df_clean.dropna(subset=event_cols)
-    # Remover valores "Yes*" ou "Yes**"
+    event_columns = ['Stress Inducement', 'Aerobic Exercise', 'Anaerobic Exercise']
+
+    # Remover colunas com valores nulos, "Yes*" ou "Yes**" nas colunas acima
+    df_clean = df_clean.dropna(subset=event_columns)
     df_clean = df_clean[
-        ~df_clean[event_cols].isin(['Yes*', 'Yes**']).any(axis=1)
+        ~df_clean[event_columns].isin(['Yes*', 'Yes**']).any(axis=1)
     ]
 
-    # substituir campos nulos por média do gênero
-    numeric_cols = ['Age', 'Height (cm)', 'Weight (kg)']
+    # substituir campos nulos por média do gênero nas colunas demográficas
+    demographic_columns = ['Age', 'Height (cm)', 'Weight (kg)']
 
-    for col in numeric_cols:
+    for col in demographic_columns:
         # média agrupada por gênero para cada linha
         mean_by_gender = df_clean.groupby('Gender')[col].transform('mean')
-
         # substitui valores nulos pela respectiva média
         df_clean[col] = df_clean[col].fillna(mean_by_gender)
 
@@ -81,25 +82,45 @@ def clean_users_info(df):
 def read_sensor_csv(user_folder, filename):
     """ 
     Lê um CSV específico do usuário e retorna como DataFrame, extraindo seu timestamp de início e a frequência de sua métrica
+
+    -- Entradas:
+        user_folder: nome da pasta = id do usuário
+        filename: nome do CSV a ser lido (e.x: ACC.csv, HR.csv, etc.)
+    -- Saídas:
+        df_metrics: DataFrame com os valores das métricas
+        start_time: timestamp de inicio da coleta da métrica pelos sensores
+        freq: frequência da métrica
     """
 
+    # Caminho para o csv
     path = os.path.join(user_folder, filename)
 
     if not os.path.exists(path):
         print(f"Aviso: arquivo {filename} não encontrado para {user_folder}")
         return None
 
+    # Leitura do csv e divisão dele de acordo com as saídas
     try:
+        # Caso IBI
         if filename.upper() == "IBI.csv".upper():
-            # colocar aqui o processo diferente para o IBI
-            # Por enquanto, apenas retornamos um placeholder
-            print("Processando arquivo IBI.csv com lógica especial...")
-            return
+            df = pd.read_csv(path, header=None)
+            start_time = pd.to_datetime(df.iloc[0, 0], errors='coerce') #linha 0 = timestamp
+            freq = None
+            df_metrics = df.iloc[1:].reset_index(drop=True)
+            df_metrics.columns = ["t_rel", "IBI"]
+            return df_metrics, start_time, freq
         else:
             df = pd.read_csv(path)
             start_time = pd.to_datetime(df.iloc[0, 0], errors='coerce')
             freq = float(df.iloc[1, 0])
-            df_metrics = df.iloc[2:].reset_index(drop=True)  # astype(float)
+            third_line = df.iloc[2, 0]
+
+            if filename.upper() == "EDA.CSV" and float(third_line) == 0.0:
+                # Pular linha de 1 até 3
+                df_metrics = df.iloc[3:].reset_index(drop=True)
+            else:
+                # Pular linha 1 e 2
+                df_metrics = df.iloc[2:].reset_index(drop=True)
             return df_metrics, start_time, freq
     
     except Exception as e:
@@ -110,255 +131,317 @@ def read_sensor_csv(user_folder, filename):
 def add_timestamp_column(df, start_time, freq):
     """
     Adiciona uma coluna de timestamps ao dataframe de métricas.
-    """
-    # número de linhas do dataframe
-    n = len(df)
 
-    # intervalo entre amostras em segundos
+     -- Entradas:
+        df: DataFrame com as métricas coletadas pelos sensores (apenas valor das métricas)
+        start_time: timestamp de inicio da coleta da métrica pelos sensores
+        freq: frequência da métrica
+    -- Saídas:
+        df_with_ts: df de entrada com a adição de uma coluna timestamp para cada amostra de métrica coletada
+
+    """
+
+    n = len(df) # número de linhas do dataframe
+
+    # Intervalo de tempo entre duas amostras consecutivas (em segundos)
     dt = 1.0 / freq
 
-    # cria vetor de deltas (0, dt, 2dt, 3dt, ...)
-    time_offsets = np.arange(n) * dt
+    # Vetor com os tempos acumulados para cada amostra (instante relativo de cada linha em relação ao início da coleta)
+    # [0*dt, 1*dt, 2*dt, 3*dt, ...]
+    relative_times = np.arange(n) * dt
 
-    # gera timestamps reais
-    timestamps = start_time + pd.to_timedelta(time_offsets, unit='s')
+    # Cria timestamps reais de cada amostra
+    timestamps = start_time + pd.to_timedelta(relative_times, unit='s')
 
-    # adiciona ao DF original
+    # Criação do DataFrame com timestamp
     df_with_ts = df.copy()
     df_with_ts["timestamp"] = timestamps
 
     return df_with_ts
-    
-def sumarizar_ACC(user_folder):
-    # chama função para le o csv, frequencia e o start_time
-    df_metrics, start_time, freq = read_sensor_csv(user_folder, "ACC.csv")
 
-    # -- PULADO -- #
-        # chama função que adiciona coluna timestamp de cada amostra (parametros: df, frequencia, start_time)
-            ####   df_metrics = add_timestamp_column(df_metrics, start_time, freq)
-        # chama função que adiciona coluna "intervalo" categorica: (1, 2 ,3...) de acordo com a coluna timestamp de cada amostra estando nos intervalos de tags, depois exclui a coluna timestamp (juntar isso com a função anterior?) colunas finais até essa etapa: metricas + Intervalo
-        # (lista de intervalos timestamps de tags já feita separadamente e passada para a função sumariza_XXX() como parametro)
-     # -- PULADO -- #
+def sumarize_sensor(user_folder, filename, process_function, add_ts=True):
+    """
+    Sumariza todos os valores coletados do sensor para sumarizar em features específicas para o sensor
 
-    # calculos de métricas especificas para o arquivo XX.csv
-    df_ACC = process_ACC(df_metrics)
-    return df_ACC
+    Entradas:
+        user_folder: id do usuário = nome da pasta ond estão os CSVs do respectivo usuário
+        filename: nome do arquivo CSV
+        process_function: função de processar métricas/calcular features
+        add_ts: boolean para indicar se deve haver adicao de timestamp (IBI não usa)
+
+    Saída:
+        DataFrame com features sumarizadas daquele sensor
+    """
+
+    # Leitura do csv e extrai o DataFrame, o start_time e a a frequencia
+    df_metrics, start_time, freq = read_sensor_csv(user_folder, filename)
+
+    # Se for um sensor baseado em série temporal, adiciona timestamp
+    if add_ts:
+        # Adição de uma coluna timestamp para cada amostra
+        df_metrics = add_timestamp_column(df_metrics, start_time, freq)
+
+    # Calculos de métricas/features especificas para o sensor
+    df_output = process_function(df_metrics)
+
+    return df_output
 
 def process_ACC(df):
+    '''
+    Processa dados do acelerômetro (ACC), calcula magnitude, estatísticas básicas e o coeficiente angular (slope) da magnitude.
+
+    --Entradas:
+        df: DataFrame contendo colunas de aceleração (x, y, z) e timestamp.
+
+    -- Saídas:
+        result_df: DataFrame com as features extraídas: STD_X_ACC, STD_Y_ACC, STD_Z_ACC, Mean_Magnitude_ACC, coef_Magnitude_ACC
+    '''
+
+    df.columns = ["x", "y", "z", "timestamp"]
 
     # Converter valores para float
-    df = df.astype(float)
-
-    # Separar colunas X, Y, Z
-    x = df[:, 0]
-    y = df[:, 1]
-    z = df[:, 2]
-
-    # STD de cada coluna
-    std_x = np.std(x)
-    std_y = np.std(y)
-    std_z = np.std(z)
+    df[["x", "y", "z"]] = df[["x", "y", "z"]].astype(float)
 
     # Magnitude
-    magnitude = np.sqrt(x**2 + y**2 + z**2)
-    mean_magnitude = np.mean(magnitude)
+    df["magnitude"] = np.sqrt(df["x"]**2 + df["y"]**2 + df["z"]**2)
 
-    '''
-    # Análise de tendência (início vs fim)
-    first_half = np.mean(magnitude[:len(magnitude)//2])
-    second_half = np.mean(magnitude[len(magnitude)//2:])
+    # STD
+    std_x = df["x"].std()
+    std_y = df["y"].std()
+    std_z = df["z"].std()
 
-    tendency = "aumentou" if second_half > first_half else "não aumentou"
-    '''
+    # mean magnitude
+    mean_magnitude = df["magnitude"].mean()
+
+    # Slope (coeficiente angular da magnitude)
+    coef_magnitude = compute_slope(df, "magnitude")
 
     result_df = pd.DataFrame({
         "STD_X_ACC": [std_x],
         "STD_Y_ACC": [std_y],
         "STD_Z_ACC": [std_z],
-        "Mean_Magnitude_ACC": [mean_magnitude]
-        # "Magnitude_First_Half_ACC": [first_half],
-        # "Magnitude_Second_Half_ACC": [second_half],
-        # "Tendency_ACC": [tendency]
+        "Mean_Magnitude_ACC": [mean_magnitude],
+        "coef_Magnitude_ACC": [coef_magnitude]
     })
 
     return result_df
-
-def sumarizar_IBI(user_folder):
-    # chama função para le o csv, frequencia e o start_time
-    df_metrics, start_time, freq = read_sensor_csv(user_folder, "IBI.csv")
-
-    df_IBI = process_IBI(df_metrics)
-    return df_IBI
 
 def process_IBI():
+    '''
+    Processa dados do IBI (intervalo entre batimentos cardíacos), calculando estatísticas descritivas e variabilidade (RMSSD)
+    --Entradas:
+        df: DataFrame contendo a coluna "IBI"
+
+    -- Saídas:
+        result_df: DataFrame com as features extraídas: Mean_IBI, STD_IBI, Median_IBI, Q1_IBI, Q3_IBI, Range_IBI, RMSSD_IBI
+    '''
+    df = df.astype(float)
+
+    ibi = df["IBI"].values
+
+    # Mean, STD
+    mean_ibi = np.mean(ibi)
+    std_ibi = np.std(ibi)
+
+    # Quartis
+    q1 = np.percentile(ibi, 25)
+    q3 = np.percentile(ibi, 75)
+
+    # Mediana
+    median_ibi = np.median(ibi)
+
+    # Range
+    range_ibi = np.max(ibi) - np.min(ibi)
+
+    # RMSSD
+    diff = np.diff(ibi)
+    rmssd = np.sqrt(np.mean(diff**2))
+
     result_df = pd.DataFrame({
-        
+        "Mean_IBI": [mean_ibi],
+        "STD_IBI": [std_ibi],
+        "Median_IBI": [median_ibi],
+        "Q1_IBI": [q1],
+        "Q3_IBI": [q3],
+        "Range_IBI": [range_ibi],
+        "RMSSD_IBI": [rmssd]
     })
 
     return result_df
 
-def sumarizar_BVP(user_folder):
-    # chama função para le o csv, frequencia e o start_time
-    df_metrics, start_time, freq = read_sensor_csv(user_folder, "BVP.csv")
-    # calculos de métricas especificas para o arquivo XX.csv
-    df_BVP = process_BVP(df_metrics, freq)
+def process_BVP(df):
+    '''
+    Processa dados do BVP gerando estatísticas básicas e o coeficiente angular
+    --Entradas:
+        df: DataFrame contendo a coluna "BVP" e timestamp
 
-    return df_BVP
+    -- Saídas:
+        result_df: DataFrame com as features extraídas: Mean_BVP, STD_BVP, Min_BVP, Max_BVP, Range_BVP, coef_BVP
+    '''
+    df.columns = ["BVP", "timestamp"]
 
-def process_BVP(df, freq):
     # converter métricas para float
-    data = df.astype(float)
+    df["BVP"] = df["BVP"].astype(float)
 
-    # Média e STD
-    mean = data.mean()
-    std = data.std()
 
-    '''
-    # detectar picos
-    peaks, _ = find_peaks(data, distance=freq*0.5) # evita picos falsos 
+    # Média, STD, min, max, range
+    mean = df["BVP"].mean()
+    std = df["BVP"].std()
+    min_val = df["BVP"].min()
+    max_val = df["BVP"].max()
+    range_val = max_val - min_val
 
-    # detectar vales (invertendo o sinal)
-    valleys, _ = find_peaks(-data, distance=freq*0.5)
-
-    # amplitude média (pico - vale anterior)
-    amplitudes = []
-    v_idx = 0
-    for p in peaks:
-        # pegar vale mais próximo antes do pico
-        while v_idx < len(valleys)-1 and valleys[v_idx+1] < p:
-            v_idx += 1
-        if valleys[v_idx] < p:
-            amplitude = data.iloc[p] - data.iloc[valleys[v_idx]]
-            amplitudes.append(amplitude)
-    '''
+    # Slope BVP
+    coef_bvp = compute_slope(df, "BVP")
 
     result_df = pd.DataFrame({
         "Mean_BVP": [mean],
         "STD_BVP": [std],
-        # "Num_Peaks_BVP": [len(peaks)],
-        # "Num_Valleys_BVP": [len(valleys)],
-        # "Mean_Amplitude_BVP": [np.mean(amplitudes) if amplitudes else np.nan]
+        "Min_BVP": [min_val],
+        "Max_BVP": [max_val],
+        "Range_BVP": [range_val],
+        "coef_BVP": [coef_bvp]
     })
 
     return result_df
 
-def sumarizar_EDA(user_folder):
-    # chama função para le o csv, frequencia e o start_time
-    df_metrics, start_time, freq = read_sensor_csv(user_folder, "EDA.csv")
-
-    df_EDA = process_EDA(df_metrics)
-    return df_EDA
-
 def process_EDA(df):
+    '''
+    Processa dados de EDA (atividade eletrodérmica) gerando estatísticas básicas e o coeficiente angular
+    --Entradas:
+        df: DataFrame contendo a coluna "EDA" e timestamp
 
+    -- Saídas:
+        result_df: DataFrame com as features extraídas: Mean_EDA, STD_EDA, Min_EDA, Max_EDA, Range_EDA, coef_EDA
+    '''
+
+    df.columns = ["EDA", "timestamp"]
     # converão para float
-    data = df.astype(float)
+    df["EDA"] = df["EDA"].astype(float)
+    
 
-    # Métricas principais
-    mean = data.mean()
-    std = data.std()
-    range = data.max() - data.min()
+    # Média, STD, min, max, range
+    mean = df["EDA"].mean()
+    std = df["EDA"].std()
+    min_val = df["EDA"].min()
+    max_val = df["EDA"].max()
+    range_val = max_val - min_val
 
-    '''
-    # Detecção de picos SCR (respostas rápidas)
-    peaks, _ = find_peaks(data, prominence=0.05)
-
-    # Amplitude dos picos (diferença entre pico e vizinhança)
-    if len(peaks) > 0:
-        amplitudes = data.iloc[peaks].values
-        mean_peak_amplitude = amplitudes.mean()
-    else:
-        mean_peak_amplitude = 0.0
-    '''
+    # Slope EDA
+    coef_eda = compute_slope(df, "EDA")
 
     # Retornar DataFrame
     result_df = pd.DataFrame({
         "Mean_EDA": [mean],
         "STD_EDA": [std],
-        "Range_EDA": [range],
-        # "SCR_Count_EDA": [len(peaks)],
-        # "SCR_Mean_Amplitude_EDA": [mean_peak_amplitude]
+        "Min_EDA": [min_val],
+        "Max_EDA": [max_val],
+        "Range_EDA": [range_val],
+        "coef_EDA": [coef_eda]
     })
     
     return result_df
 
-def sumarizar_HR(user_folder):
-    # chama função para le o csv, frequencia e o start_time
-    df_metrics, start_time, freq = read_sensor_csv(user_folder, "HR.csv")
-
-    # processamento
-    df_HR = process_HR(df_metrics)
-
-    return df_HR
-
 def process_HR(df):
+    '''
+    Processa dados de HR (frequência cardíaca) gerando estatísticas básicas e o coeficiente angular
+    --Entradas:
+        df: DataFrame contendo a coluna "HR" e timestamp
+
+    -- Saídas:
+        result_df: DataFrame com as features extraídas: Mean_HR, STD_HR, Min_HR, Max_HR, Range_HR, coef_HR
+    '''
+    
+    df.columns = ["HR", "timestamp"]
     # converter métricas para float
-    data = df.astype(float)
+    df["HR"] = df["HR"].astype(float)
+    
 
-    # Média e STD
-    mean = data.mean()
-    std = data.std()
+    # Média, STD, min, max, range
+    mean = df["HR"].mean()
+    std = df["HR"].std()
+    min_val = df["HR"].min()
+    max_val = df["HR"].max()
+    range_val = max_val - min_val
 
-    '''
-    # Encontrar picos
-    peaks, _ = find_peaks(data)
-    valleys, _ = find_peaks(-data)
-
-    # Garantir mesmo tamanho para pareamento (caso necessário)
-    n = min(len(peaks), len(valleys))
-    if n > 0:
-        amplitudes = data.iloc[peaks[:n]].values - data.iloc[valleys[:n]].values
-        mean_amplitude = amplitudes.mean()
-    else:
-        mean_amplitude = np.nan  # caso não haja picos/vales suficientes
-    '''
+    # Slope HR
+    coef_hr = compute_slope(df, "HR")
 
     # Criar DataFrame de saída
     result_df = pd.DataFrame({
         "Mean_HR": [mean],
         "STD_HR": [std],
-        # "Mean_Amplitude_HR": [mean_amplitude],
-        # "Num_Peaks_HR": [len(peaks)],
-        # "Num_Valleys_HR": [len(valleys)]
+        "Min_HR": [min_val],
+        "Max_HR": [max_val],
+        "Range_HR": [range_val],
+        "coef_HR": [coef_hr]
     })
 
     return result_df
 
-def sumarizar_TEMP(user_folder):
-    # chama função para le o csv, frequencia e o start_time
-    df_metrics, start_time, freq = read_sensor_csv(user_folder, "TEMP.csv")
-    # calculos de métricas especificas para o arquivo XX.csv
-    df_TEMP = process_TEMP(df_metrics)
-
-    return df_TEMP
-
 def process_TEMP(df):
+    '''
+    Processa dados de HR (frequência cardíaca) gerando estatísticas básicas e o coeficiente angular
+    --Entradas:
+        df: DataFrame contendo a coluna "TEMP" e timestamp
+
+    -- Saídas:
+        result_df: DataFrame com as features extraídas: Mean_TEMP, Min_TEMP, Max_TEMP, Range_TEMP, coef_TEMP
+    '''
+    df.columns = ["TEMP", "timestamp"]
     # converter métricas para float
-    data = df.astype(float)
+    df["TEMP"] = df["TEMP"].astype(float)
 
-    # Média e Range
-    mean = data.mean()
-    range = data.max() - data.min()
 
-    # Tendência (início x fim)
-    half = len(data) // 2
-    mean_first = data.iloc[:half].mean()
-    mean_second = data.iloc[half:].mean()
-    tendency = "aumentou" if mean_second > mean_first else "não aumentou"
+    # Média, min. max,  Range
+    mean = df["TEMP"].mean()
+    min_val = df["TEMP"].min()
+    max_val = df["TEMP"].max()
+    range_val = max_val - min_val
+
+    # Slope TEMP
+    coef_temp = compute_slope(df, "TEMP")
 
     # Criar DataFrame de saída
     result_df = pd.DataFrame({
         "Mean_TEMP": [mean],
         "Range_TEMP": [range],
-        "Tendency_TEMP": [tendency]
+        "Min_TEMP": [min_val],
+        "Max_TEMP": [max_val],
+        "Range_TEMP": [range_val],
+        "coef_TEMP": [coef_temp]
     })
 
     return result_df
 
+def compute_slope(df, column_name):
+    """
+    Calcula o slope (coeficiente angular) de uma coluna por regressão linear.
+    
+    -- Entradas:
+        df : DataFrame contendo a coluna da métrica e a coluna 'timestamp'
+        column_name : nome da coluna para a qual o slope será calculado
+    
+    -- Saídas:
+        slope: coeficiente angular
+    """
 
+    # garantir que timestamp está presente
+    if "timestamp" not in df.columns:
+        raise ValueError("O DataFrame precisa conter a coluna 'timestamp'")
 
+    # extrair timestamps e valores
+    timestamps = df["timestamp"].astype(float).values.reshape(-1, 1)
+    values = df[column_name].astype(float).values.reshape(-1, 1)
 
+    # regressão linear
+    model = LinearRegression()
+    model.fit(timestamps, values)
 
+    # slope = coef angular
+    slope = model.coef_[0][0]
+
+    return slope
 
 # IBI: Cacular média, STD (desvio padrão) e RMSSD(FORMULA ESTRANHA), Q_1/Q_3 (Quartis) 25 e 75 quartil
 # ACC: Média de Magnitude (MÉDIA(raiz(X^2 + Y^2 + Z^2))), STD em [X, Y e Z]
@@ -368,8 +451,8 @@ def process_TEMP(df):
 # BVP: Média, STD (desvio pad), Média de Amplitude (Picos de BVP - Vales de BVP)
 
 
-# Tags: para cada medida descobrir a faixa dos valores dos sensores que foram utilizados no experimento controlado de acordo com o tempo em tags, nas tabelas dos sensores e nas frequência de cada sensor
-
+# * IBI vazio, sem nada (U_89740), ou IBI corrompido (U_87186) ??
+# * Tratar users_info "pratica atividade fisica?": moda ?
 
 # 1. limpeza users_info (exclusão e substituição de nulos, etc)
 # 2. sumarização de cada métrica (oq fazer com yes***, yes****) (outros tratamentos?)

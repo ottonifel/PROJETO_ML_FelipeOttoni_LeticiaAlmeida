@@ -553,7 +553,7 @@ def plot_individual_boxplots(df, id_col='Id', label_col='Label', n_cols=4):
     plt.suptitle("Box Plots Individuais de Features",y=1.02, fontsize=16)
     plt.show()
 
-def plot_heatmap(df, id_col='Id', label_col='Label'):
+def plot_heatmap(df, id_col='Id', label_col='Label', annot=False, figsize=(15, 12)):
     """
     Gera um heatmap da matriz de correlação das features numéricas.
 
@@ -568,8 +568,8 @@ def plot_heatmap(df, id_col='Id', label_col='Label'):
     df_features = df.drop(columns=[id_col, label_col], errors='ignore')
     corr_matrix = df_features.corr()
 
-    plt.figure(figsize=(15, 12))
-    sns.heatmap(corr_matrix,annot=False,cmap='coolwarm',linewidths=0.5)
+    plt.figure(figsize=figsize)
+    sns.heatmap(corr_matrix,annot=annot,cmap='coolwarm',linewidths=0.5)
     plt.title("Heatmap: Correlação entre Features")
     plt.show()
 
@@ -578,23 +578,15 @@ def compute_fscore_ranking(df, label_col="Label", id_cols=["Id"], impute_strateg
     Calcula F-SCORE para qualquer DataFrame, independente se contém
     variáveis categóricas, numéricas ou valores faltantes.
 
-    Parâmetros
-    ----------
-    df : pd.DataFrame
-        DataFrame contendo features + coluna Label.
-    label_col : str
-        Nome da coluna que contém os rótulos/classes.
-    id_cols : list
-        Lista de colunas a remover (ex.: IDs).
-    impute_strategy : str
-        Estratégia do SimpleImputer. Ex.: "median", "mean".
-    drop_first_dummies : bool
-        Se True, remove a primeira categoria do one-hot para evitar multicolinearidade.
+    -- Entradas:
+        df: DataFrame contendo features + coluna Label.
+        label_col: Nome da coluna que contém os rótulos/classes.
+        id_cols: Lista de colunas a remover (ex.: IDs).
+        impute_strategy: Estratégia do SimpleImputer. Ex.: "median", "mean".
+        drop_first_dummies: Se True, remove a primeira categoria do one-hot para evitar multicolinearidade.
 
-    Retorno
-    -------
-    feature_scores : DataFrame
-        Tabela com Feature, F_Score, P_Value (ordenada por F_Score).
+    -- Saída
+    feature_scores: Tabela com Feature, F_Score, P_Value (ordenada por F_Score).
     """
 
     # 1. Separar X e y

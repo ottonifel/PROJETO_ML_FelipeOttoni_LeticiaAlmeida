@@ -54,32 +54,6 @@ def read_users_info(path='dataset/users_info.txt'):
     except Exception as e:
         print(f"Erro ao ler {path}: {e}")
         return None
-    
-def clean_users_info(df):
-    """
-    Limpa o DataFrame de informações dos usuários removendo casos inválidos/nulos
-    e preenchendo valores nulos
-    """
-
-    df_clean = df.copy()
-    event_columns = ['Stress Inducement', 'Aerobic Exercise', 'Anaerobic Exercise']
-
-    # Remover colunas com valores nulos, "Yes*" ou "Yes**" nas colunas acima
-    df_clean = df_clean.dropna(subset=event_columns)
-    df_clean = df_clean[
-        ~df_clean[event_columns].isin(['Yes*', 'Yes**']).any(axis=1)
-    ]
-
-    # substituir campos nulos por média do gênero nas colunas demográficas
-    demographic_columns = ['Age', 'Height (cm)', 'Weight (kg)']
-
-    for col in demographic_columns:
-        # média agrupada por gênero para cada linha
-        mean_by_gender = df_clean.groupby('Gender')[col].transform('mean')
-        # substitui valores nulos pela respectiva média
-        df_clean[col] = df_clean[col].fillna(mean_by_gender)
-
-    return df_clean
 
 
 def read_sensor_csv(user_folder, filename):

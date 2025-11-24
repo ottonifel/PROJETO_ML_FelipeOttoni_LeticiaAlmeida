@@ -12,3 +12,83 @@
 # ################################################################
 
 # Arquivo com todas as funcoes e codigos referentes ao preprocessamento
+
+import os
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.feature_selection import f_classif
+from sklearn.impute import SimpleImputer
+
+def clean_users_info(df):
+    """
+    Limpa o DataFrame removendo casos inválidos/nulos
+    e preenchendo valores nulos relacionados as informações de users_info
+    """
+
+    df_clean = df.copy()
+    event_columns = ['Stress Inducement', 'Aerobic Exercise', 'Anaerobic Exercise']
+
+    # Remover colunas com valores nulos, "Yes*" ou "Yes**" nas colunas acima
+    df_clean = df_clean.dropna(subset=event_columns)
+    df_clean = df_clean[
+        ~df_clean[event_columns].isin(['Yes*', 'Yes**']).any(axis=1)
+    ]
+
+    # substituir campos nulos por média do gênero nas colunas demográficas
+    demographic_columns = ['Age', 'Height (cm)', 'Weight (kg)']
+
+    for col in demographic_columns:
+        # média agrupada por gênero para cada linha
+        mean_by_gender = df_clean.groupby('Gender')[col].transform('mean')
+        # substitui valores nulos pela respectiva média
+        df_clean[col] = df_clean[col].fillna(mean_by_gender)
+
+    return df_clean
+
+def removeOutliers(df_dataset):
+
+    df_sem_outliers = df_dataset.copy()
+    colunas_numericas = df_dataset.select_dtypes(include=np.number).columns
+    mascara_final = pd.Series([True] * len(df_dataset), index=df_dataset.index)
+    
+    for atributo in colunas_numericas:
+        Q1 = df_sem_outliers[atributo].quantile(0.25)
+        Q3 = df_sem_outliers[atributo].quantile(0.75)
+        IQR = Q3 - Q1
+
+        limite_inferior = Q1 - 1.5 * IQR
+        limite_superior = Q3 + 1.5 * IQR
+
+        # mascara onde True significa que o valor não é um outlier
+        mascara_coluna = (df_sem_outliers[atributo] >= limite_inferior) & (df_sem_outliers[atributo] <= limite_superior)
+        
+        # combina a mascara da coluna com a msscara final
+        mascara_final = mascara_final & mascara_coluna
+
+    df_dataset = df_sem_outliers[mascara_final]    
+    
+    return df_dataset
+
+def check_remove_outlier(df_original, df_limpo):
+    cols = df_original.select_dtypes(include='number').columns
+    resultado = {}
+    for col in cols:
+        Q1 = df_original[col].quantile(0.25)
+        Q3 = df_original[col].quantile(0.75)
+        IQR = Q3 - Q1
+        li = Q1 - 1.5*IQR
+        ls = Q3 + 1.5*IQR
+        mask_orig = (df_original[col] < li) | (df_original[col] > ls)
+        mask_limpo = (df_limpo[col] < li) | (df_limpo[col] > ls)
+        total = int(mask_orig.sum())
+        restam = int(mask_limpo.sum())
+        remov = total - restam
+        resultado[col] = {
+            'original': total,
+            'removidos': remov,
+            'restantes': restam
+        }
+    return resultado

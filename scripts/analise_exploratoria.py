@@ -189,6 +189,8 @@ def process_ACC(df):
 
     # mean magnitude
     mean_magnitude = df["magnitude"].mean()
+    # std magnitude
+    std_magnitude = df["magnitude"].std()
 
     # Slope (coeficiente angular da magnitude)
     coef_magnitude = compute_slope(df, "magnitude")
@@ -198,6 +200,7 @@ def process_ACC(df):
         "STD_Y_ACC": [std_y],
         "STD_Z_ACC": [std_z],
         "Mean_Magnitude_ACC": [mean_magnitude],
+        "STD_Magnitude_ACC": [std_magnitude],
         "coef_Magnitude_ACC": [coef_magnitude]
     })
 
@@ -440,29 +443,19 @@ def plot_boxplots_por_classe(df, label_col='Label', n_cols=3, figsize_scale=4):
     -- Saída:
         None: plotagem do gráfico
     """
-
-    # Garantir que a coluna de label existe
-    if label_col not in df.columns:
-        raise ValueError(f"A coluna '{label_col}' não existe no DataFrame.")
-
     # Selecionar apenas features numéricas + label
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-    # Garantir que o label esteja presente
     if label_col not in numeric_cols:
         numeric_cols.append(label_col)
-
     df_filtered = df[numeric_cols].copy()
-
-    # Remover linhas onde qualquer feature numérica falha
     df_filtered.dropna(inplace=True)
 
-    # Reformatar para melting
+    # Melt
     df_melted = df_filtered.melt(id_vars=label_col,var_name='Feature',value_name='Value')
 
     # Criar grid
     features = df_filtered.drop(columns=[label_col]).columns
     n_features = len(features)
-    
     n_rows = (n_features + n_cols - 1) // n_cols
     plt.figure(figsize=(n_cols * figsize_scale, n_rows * (figsize_scale + 1)))
 
@@ -486,8 +479,7 @@ def plot_boxplots_por_classe(df, label_col='Label', n_cols=3, figsize_scale=4):
 
 def plot_individual_boxplots(df, id_col='Id', label_col='Label', n_cols=4):
     """
-    Gera um conjunto de boxplots individuais para todas as features numéricas
-    (exceto ID e Label).
+    Gera um conjunto de boxplots individuais para todas as features numéricas.
 
     -- Entradas:
         df: Dataset a ser plotado.
@@ -560,26 +552,26 @@ def compute_fscore_ranking(df, label_col="Label", id_cols=["Id"], impute_strateg
         drop_first_dummies: Se True, remove a primeira categoria do one-hot para evitar multicolinearidade.
 
     -- Saída
-    feature_scores: Tabela com Feature, F_Score, P_Value (ordenada por F_Score).
+        feature_scores: Tabela com Feature, F_Score, P_Value (ordenada por F_Score).
     """
 
-    # 1. Separar X e y
+    # Separar X e y
     df_clean = df.drop(columns=id_cols + [label_col], errors="ignore")
     y = df[label_col]
 
-    # 2. Converter categóricas usando One-Hot Encoding
+    # Converter categóricas usando One-Hot Encoding
     X_encoded = pd.get_dummies(df_clean, drop_first=drop_first_dummies)
 
-    # 3. Imputar valores ausentes
+    # Imputar valores ausentes
     imputer = SimpleImputer(strategy=impute_strategy)
     X_imputed = imputer.fit_transform(X_encoded)
 
     X_final = pd.DataFrame(X_imputed, columns=X_encoded.columns)
 
-    # 4. Calcular F-SCORE
+    # Calcular F-SCORE
     f_scores, p_values = f_classif(X_final, y)
 
-    # 5. Criar tabela de resultados
+    # tabela de resultados
     feature_scores = pd.DataFrame({
         "Feature": X_final.columns,
         "F_Score": f_scores,

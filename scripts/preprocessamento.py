@@ -21,6 +21,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.feature_selection import f_classif
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, Normalizer
+import pandas as pd
 
 def clean_users_info(df):
     """
@@ -49,16 +51,24 @@ def clean_users_info(df):
     return df_clean
 
 def removeOutliers(df_dataset):
+    """
+    Remove outliers das coluna numéricas
 
+    -- Entradas:
+        df_dataset: DataFrame com outliers
+
+    -- Saída:
+        df_dataset: DataFrame sem os outliers
+    """
     df_sem_outliers = df_dataset.copy()
     colunas_numericas = df_dataset.select_dtypes(include=np.number).columns
     mascara_final = pd.Series([True] * len(df_dataset), index=df_dataset.index)
     
     for atributo in colunas_numericas:
+        # estatisticas
         Q1 = df_sem_outliers[atributo].quantile(0.25)
         Q3 = df_sem_outliers[atributo].quantile(0.75)
         IQR = Q3 - Q1
-
         limite_inferior = Q1 - 1.5 * IQR
         limite_superior = Q3 + 1.5 * IQR
 
@@ -73,14 +83,29 @@ def removeOutliers(df_dataset):
     return df_dataset
 
 def check_remove_outlier(df_original, df_limpo):
+    """
+    Valida a remoçãode outliers
+
+    -- Entradas:
+        df_original: DataFrame original antes da remoção dos outliers
+        df_limpo: DataFrame após a remoção
+
+    -- Saída:
+        df_relatiorio: DataFrame mostrando dados da verificação: quantidade de outliers removidos, etc.
+    """
+    # seleciona colunas numéricas
     cols = df_original.select_dtypes(include='number').columns
+    
     resultado = {}
     for col in cols:
+        # para cada coluna calcula estatisticas
         Q1 = df_original[col].quantile(0.25)
         Q3 = df_original[col].quantile(0.75)
         IQR = Q3 - Q1
         li = Q1 - 1.5*IQR
         ls = Q3 + 1.5*IQR
+
+        # contagem dos dados
         mask_orig = (df_original[col] < li) | (df_original[col] > ls)
         mask_limpo = (df_limpo[col] < li) | (df_limpo[col] > ls)
         total = int(mask_orig.sum())
@@ -91,4 +116,34 @@ def check_remove_outlier(df_original, df_limpo):
             'removidos': remov,
             'restantes': restam
         }
-    return resultado
+
+        df_relatorio = pd.DataFrame.from_dict(resultado, orient='index')
+    return df_relatorio
+
+def normalize_dataset(df_train, df_test, scaler, drop_cols=["Id", "Label"]):
+    """
+    Normalização. Aplica um scaler ao dataset de treino e teste.
+
+    -- Entradas:
+        df_train: DataFrame de treino
+        df_test: DataFrame de teste
+        scaler: instancia de scaler do sklearn
+        drop_cols (list): colunas para remover antes da normalização
+
+    -- Saída:
+        (df_train_normalized, df_test_normalized): DataFrames normalizados
+    """
+
+    # Ajustar scaler no treino
+    scaler.fit(df_train)
+
+    # Transformar dados
+    X_train_normalized = scaler.transform(df_train)
+    X_test_normalized = scaler.transform(df_test)
+
+    # Retornar DataFrames
+    return (
+        pd.DataFrame(X_train_normalized, columns=df_train.columns),
+        pd.DataFrame(X_test_normalized,  columns=df_test.columns)
+    )
+

@@ -3,3 +3,5 @@ from .analise_exploratoria import read_users_info, read_sensor_csv, sumarize_sen
                                   plot_boxplots_por_classe, plot_individual_boxplots, plot_heatmap, compute_fscore_ranking
 
 from .preprocessamento import clean_users_info, removeOutliers, check_remove_outlier, normalize_dataset
+
+from .experimentos import comparacao_em_grade_modelos, find_dataset_model_config, avaliar_modelo_grid_search

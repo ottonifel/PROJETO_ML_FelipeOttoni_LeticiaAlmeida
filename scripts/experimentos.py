@@ -16,135 +16,203 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.preprocessing import LabelEncoder
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from typing import Dict, Any, List
+from sklearn.model_selection import cross_validate
+from sklearn.metrics import make_scorer, f1_score
+from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
 
 def find_dataset_model_config(resultados):
     """
-    Encontra e imprime a melhor combinação entre todos os modelos e configurações.
+    Escolhe o melhor modelo usando:
+    1) F1-score macro
+    2) Acurácia
     """
-    # Encontra a melhor combinação em todos os resultados
-    melhor_combinacao = max(resultados, key=lambda k: resultados[k]['Média de Acurácia'])
-    melhor_resultado = resultados[melhor_combinacao]
-
-    # Imprime o resultado
-    print("\n" + "="*70)
-    print("RESUMO GLOBAL: MELHOR COMBINAÇÃO ENCONTRADA GERAL")
-    print("="*70)
-    print(f"Melhor Combinação: {melhor_combinacao}")
-    print(f"Média de Acurácia: {melhor_resultado['Média de Acurácia']:.4f}")
     
-    # Imprime os hiperparâmetros, se existirem
-    if 'Hiperparâmetros' in melhor_resultado and melhor_resultado['Hiperparâmetros']:
-        print(f"Hiperparâmetros: {melhor_resultado['Hiperparâmetros']}")
-        
-    print(f"Desvio Padrão: {melhor_resultado['Desvio Padrão']:.4f}")
+    melhor = None
+    melhor_key = None
+
+    for k, r in resultados.items():
+        if melhor is None:
+            melhor = r
+            melhor_key = k
+            continue
+
+        cond1 = r["F1-score"] > melhor["F1-score"]
+        cond2 = r["F1-score"] == melhor["F1-score"] and r["Acurácia"] > melhor["Acurácia"]
+
+        if cond1 or cond2:
+            melhor = r
+            melhor_key = k
+
+    print("\n" + "="*70)
+    print("MELHOR MODELO (Critério: F1 > Acurácia)")
+    print("="*70)
+    
+    print(f"Melhor Combinação: {melhor_key}")
+    print(f"Acurácia: {melhor['Acurácia']:.4f}")
+    print(f"F1-score: {melhor['F1-score']:.4f}")
+    print(f"Desvio Acc: {melhor['Desvio Acc']:.4f}")
+    print(f"Desvio F1: {melhor['Desvio F1']:.4f}")
+    print("Hiperparâmetros:", melhor["Hiperparâmetros"])
     print("="*70)
 
 
 def avaliar_modelo_grid_search(modelo, nome_modelo, X_treino, y_treinamento, k_values, knn_params, nome_tecnica):
-    """
-    Avalia um modelo em todos os valores de K-Fold e, se for KNN, 
-    em todos os hiperparâmetros 'n_neighbors' fornecidos
-    """
+
     resultados = {}
-    
-    # verifica se o modelo é KNN
+
+    # tipo de modelo
     is_knn = isinstance(modelo, KNeighborsClassifier)
-    
-    # Para modelos não-KNN executa apenas uma vez o Loop
-    n_neighbors_values = knn_params if is_knn else [None]
+    is_logreg = isinstance(modelo, LogisticRegression)
+    is_svm = isinstance(modelo, SVC)
+    is_mlp = isinstance(modelo, MLPClassifier)
+    is_rf = isinstance(modelo, RandomForestClassifier)
 
-    print(f"\n{'='*50}\nBusca em Grade para: {nome_modelo} (Técnica: {nome_tecnica})\n{'='*50}")
+    # Grid Search
+    if is_knn:
+        hyperparams_list = [{"n_neighbors": k} for k in knn_params]
 
-    # Loop sobre os valores de K-Fold
+    elif is_logreg:
+        hyperparams_list = [{"C": c} for c in [0.1, 1, 10]]
+
+    elif is_svm:
+        if modelo.kernel == "linear":
+            hyperparams_list = [{"C": c} for c in [0.1, 1, 10]]
+        elif modelo.kernel == "rbf":
+            hyperparams_list = [
+                {"C": 1, "gamma": 0.01},
+                {"C": 1, "gamma": 0.1},
+                {"C": 10, "gamma": 0.01},
+            ]
+        else:
+            hyperparams_list = [{}]
+
+    elif is_mlp:
+        hyperparams_list = [
+            {"hidden_layer_sizes": (10,)},
+            {"hidden_layer_sizes": (20, 10)},
+            {"hidden_layer_sizes": (50,)},
+        ]
+
+    elif is_rf:
+        hyperparams_list = [
+            {"n_estimators": 50, "max_depth": 4},
+            {"n_estimators": 150, "max_depth": 10},
+        ]
+
+    else:
+        hyperparams_list = [{}]
+
+    # Métricas
+    scorers = {
+        "accuracy": "accuracy",
+        "f1_macro": make_scorer(f1_score, average="macro")
+    }
+
+    print(f"\n{'='*50}\nBusca para: {nome_modelo} | Técnica: {nome_tecnica}\n{'='*50}")
+
+    # Loop kfold
     for k_fold in k_values:
         cv_k = StratifiedKFold(n_splits=k_fold, shuffle=True, random_state=42)
-        
-        # 3. Loop sobre os hiperparâmetros (n_neighbors) - Executa 1x para modelos não-KNN
-        for n_neighbors in n_neighbors_values:
-            
-            # Clona o modelo
-            current_model = clone(modelo)
-            current_hyperparams = {}
-            
-            # se for KNN configura o modelo
-            if is_knn and n_neighbors is not None:
-                current_model.set_params(n_neighbors=n_neighbors)
-                current_hyperparams = {'n_neighbors': n_neighbors}
-            
-            # Executa a Validação Cruzada K vezes
-            scores = cross_val_score(current_model, X_treino, y_treinamento, cv=cv_k, scoring='accuracy', n_jobs=-1)
-            media = np.mean(scores)
-            std = np.std(scores)
-                
-            # Armazena os resultados
-            chave = f"{nome_tecnica}_KFold{k_fold}"
-            # se for KNN ajusta
-            if is_knn and n_neighbors is not None:
-                chave += f"_KNN_k{n_neighbors}"
-                
-            # formato: (Técnica_KFold_Hiperparam)
+
+        # loop hiperparametro
+        for hyperparams in hyperparams_list:
+
+            model_clone = clone(modelo)
+            if hyperparams:
+                model_clone.set_params(**hyperparams)
+
+            scores = cross_validate(
+                estimator=model_clone,
+                X=X_treino,
+                y=y_treinamento,
+                cv=cv_k,
+                scoring=scorers,
+                n_jobs=-1
+            )
+
+            # métricas
+            media_acc = scores["test_accuracy"].mean()
+            media_f1 = scores["test_f1_macro"].mean()
+
+            # formatação chave
+            chave = f"{nome_tecnica}_K{k_fold}_{hyperparams}"
+
             resultados[chave] = {
-                'Média de Acurácia': media,
-                'Desvio Padrão': std,
-                'Hiperparâmetros': current_hyperparams
+                "Acurácia": media_acc,
+                "F1-score": media_f1,
+                "Desvio Acc": scores["test_accuracy"].std(),
+                "Desvio F1": scores["test_f1_macro"].std(),
+                "Hiperparâmetros": hyperparams
             }
-            
-            # Print resultado
-            param_str = f" (k={n_neighbors})" if is_knn and n_neighbors is not None else ""
-            print(f"-> Combinação {nome_modelo} | {nome_tecnica} | K-Fold={k_fold}{param_str}: Média de Acurácia = {media:.4f} (+/- {std:.4f})")
-            
-    # Imprime a melhor combinação (Melhor Normalização e Melhor K folds)
-    if resultados:
-        melhor_combinacao = max(resultados, key=lambda k: resultados[k]['Média de Acurácia'])
-        melhor_resultado = resultados[melhor_combinacao]
 
-        print("\n-------------------------------------------------")
-        print(f"Melhor combinação para {nome_modelo} ({nome_tecnica}): {melhor_combinacao}")
-        print(f"Média de Acurácia: {melhor_resultado['Média de Acurácia']:.4f}")
-        print(f"Desvio Padrão: {melhor_resultado['Desvio Padrão']:.4f}")
-        print("-------------------------------------------------")
-
+            print(f"{nome_modelo} | {nome_tecnica} | K={k_fold} | Params={hyperparams} "
+                  f"=> Acc={media_acc:.4f}, F1={media_f1:.4f}")
 
     return resultados
 
-def comparacao_em_grade_modelos(modelos, conjuntos_treino, y_treinamento ,k_values, knn_params):
-    """
-    Executa a comparação em grade para o dicionário de modelos, 
-    ajustando o hiperparâmetro 'n_neighbors' (K do KNN) junto com as técnicas de pré-processamento e os K-Folds.
-    """
 
-    # Dicionário para armazenar todos os resultados
+def comparacao_em_grade_modelos(modelos, conjuntos_treino, y_treinamento ,k_values, knn_params):
     resultados = {}
 
-    # Loop 1: Itera sobre as técnicas de pré-processamento ( tipos de Normalização)
+    # itera sobre normalização
     for nome_tecnica, X_treino in conjuntos_treino.items():
-        
-        # Loop 2: Itera sobre os modelos
+
+        # itera sobre modelo
         for nome_modelo, modelo in modelos.items():
-            
-            # O avaliar_modelo_grid_search agora recebe e utiliza os knn_params se for um KNN
+
             resultados_modelo = avaliar_modelo_grid_search(
                 modelo=modelo, 
                 nome_modelo=nome_modelo, 
                 X_treino=X_treino, 
-                y_treinamento=y_treinamento, 
-                k_values=k_values, 
+                y_treinamento=y_treinamento,
+                k_values=k_values,
                 knn_params=knn_params,
                 nome_tecnica=nome_tecnica
             )
-            
-            # Combina os resultados do modelo atual com os dicionario de resultados globais
+
             for chave_combinacao, resultado in resultados_modelo.items():
                 chave_final = f"{nome_modelo}_{chave_combinacao}"
                 resultados[chave_final] = resultado
-            
-    # Resultado final
+    # mostra o melhor
     find_dataset_model_config(resultados)
+
+def avaliar_dummy_baseline(X, y, k_fold=5):
+    """
+    Avalia DummyClassifier.
+    
+    -- Entradas:
+        X: Features de treinamento.
+        y: Labels.
+        k_fold: Quantidade de folds para validação cruzada.
+    
+    -- Saída:
+    resultados: Dicionário contendo média e desvio padrão da acurácia por estratégia.
+    """
+    strategies = ["most_frequent", "stratified"]
+
+    resultados = {}
+
+    cv = StratifiedKFold(n_splits=k_fold, shuffle=True, random_state=42)
+
+    for strategy in strategies:
+        # Modelo dummy
+        dummy = DummyClassifier(strategy=strategy, random_state=42)
+
+        # Validação cruzada
+        scores = cross_val_score(dummy, X, y, cv=cv, scoring='accuracy', n_jobs=-1)
+
+        resultados[strategy] = {
+            "media": np.mean(scores),
+            "std": np.std(scores),
+            "scores": scores
+        }
+
+        print(f"[Dummy: {strategy.replace('_', ' ')}]  Acurácia Média = {np.mean(scores):.4f}  (+/- {np.std(scores):.4f})")
+
+    return resultados

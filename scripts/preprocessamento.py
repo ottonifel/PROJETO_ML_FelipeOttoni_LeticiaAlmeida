@@ -82,6 +82,51 @@ def removeOutliers(df_dataset):
     
     return df_dataset
 
+def replace_outliers(df, label_col="Label", factor=1.5):
+    """
+    Identifica outliers usando IQR e substitui os valores extremos 
+    pela média dos valores NÃO outliers da mesma classe.
+
+    Parâmetros:
+    -----------
+    df: DataFrame original
+    label_col: Nome da coluna de classes (Label)
+    factor: multiplicador do IQR (1.5 = padrão)
+
+    Retorna:
+    --------
+    df_corrigido: DataFrame com outliers substituídos
+    """
+
+    df_corrigido = df.copy()
+    colunas_numericas = df.select_dtypes(include="number").columns
+
+    for col in colunas_numericas:
+
+        # Calcula limites globais para detectar outliers
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        li = Q1 - factor * IQR
+        ls = Q3 + factor * IQR
+
+        # Identifica outliers
+        mask_outlier = (df_corrigido[col] < li) | (df_corrigido[col] > ls)
+
+        if mask_outlier.any():
+            # Para cada classe, calcula a média dos valores não-outliers
+            medias_por_classe = (
+                df_corrigido.loc[~mask_outlier].groupby(label_col)[col].mean()
+            )
+
+            # Substitui outliers pela média da classe correspondente
+            for idx in df_corrigido[mask_outlier].index:
+                classe = df_corrigido.loc[idx, label_col]
+                df_corrigido.at[idx, col] = medias_por_classe.get(classe, df_corrigido[col].mean())
+
+    return df_corrigido
+
+
 def check_remove_outlier(df_original, df_limpo):
     """
     Valida a remoçãode outliers

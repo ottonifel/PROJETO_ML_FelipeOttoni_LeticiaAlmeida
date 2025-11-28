@@ -21,6 +21,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.feature_selection import f_classif
 from sklearn.impute import SimpleImputer
+from scipy.signal import savgol_filter
 
 def read_users_info(path='dataset/users_info.txt'):
     """
@@ -314,6 +315,20 @@ def process_EDA(df):
     # Slope EDA
     coef_eda = compute_slope(df, "EDA")
 
+    # Tonic (componente lenta)
+    tonic = savgol_filter(df["EDA"], window_length=51, polyorder=3)
+
+    # media e std do tonic
+    mean_tonic = np.mean(tonic)
+    std_tonic = np.std(tonic)
+
+    # Phasic (componente rápida)
+    phasic = df["EDA"] - tonic
+
+    # media e std do phasic
+    mean_phasic = np.mean(phasic)
+    std_phasic = np.std(phasic)
+
     # Retornar DataFrame
     result_df = pd.DataFrame({
         "Mean_EDA": [mean],
@@ -321,7 +336,11 @@ def process_EDA(df):
         "Min_EDA": [min_val],
         "Max_EDA": [max_val],
         "Range_EDA": [range_val],
-        "coef_EDA": [coef_eda]
+        "coef_EDA": [coef_eda],
+        "Mean_Tonic_EDA": [mean_tonic],
+        "STD_Tonic_EDA": [std_tonic],
+        "Mean_Phasic_EDA": [mean_phasic],
+        "STD_Phasic_EDA": [std_phasic]
     })
     
     return result_df

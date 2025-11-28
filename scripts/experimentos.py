@@ -181,6 +181,7 @@ def comparacao_em_grade_modelos(modelos, conjuntos_treino, y_treinamento ,k_valu
                 resultados[chave_final] = resultado
     # mostra o melhor
     find_dataset_model_config(resultados)
+    return (resultados)
 
 def avaliar_dummy_baseline(X, y, k_fold=5):
     """

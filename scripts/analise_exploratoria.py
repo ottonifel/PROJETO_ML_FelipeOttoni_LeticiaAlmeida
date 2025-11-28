@@ -599,27 +599,3 @@ def compute_fscore_ranking(df, label_col="Label", id_cols=["Id"], impute_strateg
 
     return feature_scores
 
-
-
-
-
-
-# IBI: Cacular média, STD (desvio padrão) e RMSSD(FORMULA ESTRANHA), Q_1/Q_3 (Quartis) 25 e 75 quartil
-# ACC: Média de Magnitude (MÉDIA(raiz(X^2 + Y^2 + Z^2))), STD em [X, Y e Z]
-# HR: Média, STD (desvio pad), Média de Amplitude (Picos de BVP - Vales de BVP)
-# TEMP: Média, Range (MAX - MIN)
-# EDA: Média, STD(desvio padrão), SCR Rate (Número de Picos/Duração da Sessão)
-# BVP: Média, STD (desvio pad), Média de Amplitude (Picos de BVP - Vales de BVP)
-
-
-# * IBI vazio, sem nada (U_89740), ou IBI corrompido (U_87186) ??
-# * Tratar users_info "pratica atividade fisica?": moda ?
-
-# 1. limpeza users_info (exclusão e substituição de nulos, etc)
-# 2. sumarização de cada métrica (oq fazer com yes***, yes****) (outros tratamentos?)
-# 3. junção de users_info com a sumarização
-# 4. exclusão de outliers em cada coluna
-# 5. analise exploratoria de ditribuição, covariancia etc. coluna por coluna para saber se elas interferem no rotulo (exclusão de coluna que não interferem)
-# 6. normalizar colunas (tranformações simbolica-numerica, numerica-numerica, etc)
-# 7... Aplicação nos modelos e testes/justificativas
-
